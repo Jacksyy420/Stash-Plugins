@@ -3,7 +3,7 @@
 # Aufruf: bash build_site.sh [ausgabeordner]   (Standard: _site)
 set -euo pipefail
 
-PLUGIN_DIR="plugins"
+PLUGIN_DIR="Plugins"
 OUT="${1:-_site}"
 
 rm -rf "$OUT"
