@@ -1,0 +1,48 @@
+name: Scene Snapshots
+description: Screenshot suggestions in the scene player, save them as images in the library path, set cover
+version: 1.0.0
+
+ui:
+  javascript:
+    - snapshots.js
+  css:
+    - snapshots.css
+
+settings:
+  suggestionCount:
+    displayName: Number of suggestions
+    description: How many frames are suggested (1–24, default 8)
+    type: NUMBER
+  outputFolder:
+    displayName: Target folder inside the library
+    description: Subfolder in the scene's library root (default "Screenshots")
+    type: STRING
+  jpegQuality:
+    displayName: JPEG quality
+    description: ffmpeg scale 2–31, lower is better (default 2)
+    type: NUMBER
+  linkGallery:
+    displayName: Add to gallery
+    description: Put saved images into a gallery of the scene. If the scene already has a manual gallery it is used, otherwise a new one is created (default on)
+    type: BOOLEAN
+  tagName:
+    displayName: Tag for snapshots
+    description: Saved images get this tag. Leave empty for no tag (default "Screenshot")
+    type: STRING
+  avoidIntroOutro:
+    displayName: Avoid intro and outro
+    description: Only suggest frames between 5 % and 95 % of the scene length (default on). Can be changed per run in the window.
+    type: BOOLEAN
+  copyMetadata:
+    displayName: Copy metadata
+    description: Copy performers, studio and date of the scene to saved images, where available (default on)
+    type: BOOLEAN
+
+exec:
+  - python3
+  - "{pluginDir}/snapshots.py"
+interface: raw
+
+tasks:
+  - name: Save Snapshot
+    description: Called by the player button. Extracts a frame with ffmpeg and starts a scan.

@@ -1,0 +1,508 @@
+(function () {
+  "use strict";
+
+  const PLUGIN_ID = "collapsible-plugin-settings"; // = file name of the YAML without extension
+  const STORAGE_KEY = "csp-collapsed-groups";
+  const SORT_KEY = "csp-sort-mode";
+  const SORT_MODES = ["default", "asc", "desc"];
+
+  // Adjust here if the DOM of your Stash version differs
+  const SELECTORS = {
+    pane: "#configuration-tabs-tabpane-plugins", // Settings -> "Plugins" tab
+    group: ".setting-group",                      // one plugin group
+  };
+
+  // Settings -> "Tasks" tab -> "Plugin Tasks" section
+  const TASKS = {
+    pane: "#configuration-tabs-tabpane-tasks",
+    // Heading of the section (lower case); add the text of your UI language if needed
+    headings: ["plugin tasks", "plugin-tasks", "plugin-aufgaben", "plugin aufgaben"],
+    prefix: "tasks:", // keeps identical plugin names in both tabs apart in storage
+  };
+
+  // "collapsed" | "expanded" | "remember"
+  let mode = "remember";
+  const ready = {}; // Scope-ID -> { container, promise }
+  let lastActiveId = null;
+  let toolbar = null;
+  let searchInput = null;
+  let countEl = null;
+  let currentScope = null; // scope the toolbar is currently aligned to
+  let rafId = 0;
+  let settleUntil = 0;
+  let query = ""; // current search term (not stored)
+  let sortMode = "default"; // "default" | "asc" | "desc" (stored)
+  try {
+    const saved = localStorage.getItem(SORT_KEY);
+    if (SORT_MODES.includes(saved)) sortMode = saved;
+  } catch {}
+  // State of the current visit (for the modes collapsed/expanded)
+  const sessionState = {};
+  const lastNativeClick = new WeakMap();
+
+  function normalizeMode(value) {
+    const v = String(value || "").trim().toLowerCase();
+    // The German aliases are kept for settings saved by earlier versions
+    if (["collapsed", "collapse", "eingeklappt", "einklappen"].includes(v)) return "collapsed";
+    if (["expanded", "expand", "ausgeklappt", "ausklappen"].includes(v)) return "expanded";
+    return "remember";
+  }
+
+  async function loadMode() {
+    try {
+      const res = await fetch(new URL("graphql", document.baseURI), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: "query { configuration { plugins } }" }),
+      });
+      const json = await res.json();
+      const cfg = json && json.data && json.data.configuration.plugins;
+      mode = normalizeMode(cfg && cfg[PLUGIN_ID] && cfg[PLUGIN_ID].defaultState);
+    } catch {
+      mode = "remember";
+    }
+  }
+
+  function loadState() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
+    } catch {
+      return {};
+    }
+  }
+
+  function saveState(state) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {}
+  }
+
+  // Name of a group = text of its header (e.g. the plugin name)
+  function groupKey(header) {
+    const title = header.querySelector("h3, h4, h2, .setting-heading") || header;
+    return (title.textContent || "").trim().split("\n")[0];
+  }
+
+  function nameOf(group) {
+    return groupKey(group.firstElementChild || group);
+  }
+
+  function isCollapsed(key) {
+    if (key in sessionState) return sessionState[key];
+    if (mode === "remember") return !!loadState()[key];
+    return mode === "collapsed";
+  }
+
+  function setCollapsed(key, collapsed) {
+    sessionState[key] = collapsed;
+    if (mode === "remember") {
+      const s = loadState();
+      if (collapsed) s[key] = true;
+      else delete s[key];
+      saveState(s);
+    }
+  }
+
+  function clearSession(sc) {
+    Object.keys(sessionState).forEach((k) => {
+      if (k.startsWith(TASKS.prefix) === sc.native) delete sessionState[k];
+    });
+  }
+
+  // ---- Bereiche (Scopes) -------------------------------------------------
+
+  // Heading that is exactly "Plugins" (not "Installed Plugins"). It may sit inside
+  // or just above the tab content, so the surrounding area is searched.
+  // Fallback: first heading outside of a plugin group.
+  const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6, .setting-heading";
+
+  function findHeading(pane) {
+    const scope =
+      (pane.closest(".tab-content") && pane.closest(".tab-content").parentElement) ||
+      pane.parentElement ||
+      document;
+    const all = Array.from(scope.querySelectorAll(HEADING_SELECTOR)).filter(
+      (h) => !h.closest("[data-csp-key]")
+    );
+    const exact = all.find(
+      (h) => h.offsetParent !== null && (h.textContent || "").trim().toLowerCase() === "plugins"
+    );
+    return exact || all.find((h) => pane.contains(h)) || null;
+  }
+
+  function resolveScopes() {
+    if (!location.pathname.startsWith("/settings")) return [];
+    const out = [];
+
+    const pluginsPane = document.querySelector(SELECTORS.pane);
+    if (pluginsPane) {
+      out.push({
+        id: "plugins",
+        native: false, // own collapse mechanism
+        prefix: "",
+        pane: pluginsPane,
+        container: pluginsPane,
+        heading: findHeading(pluginsPane),
+        groups: Array.from(pluginsPane.querySelectorAll(SELECTORS.group)),
+      });
+    }
+
+    const tasksPane = document.querySelector(TASKS.pane);
+    if (tasksPane) {
+      const h1Of = (sec) => Array.from(sec.children).find((c) => c.tagName === "H1");
+      const section = Array.from(tasksPane.querySelectorAll(".setting-section")).find((sec) => {
+        const h = h1Of(sec);
+        return h && TASKS.headings.includes((h.textContent || "").trim().toLowerCase());
+      });
+      if (section) {
+        out.push({
+          id: "tasks",
+          native: true, // Stash collapses these groups itself -> operate its button
+          prefix: TASKS.prefix,
+          pane: tasksPane,
+          container: section,
+          heading: h1Of(section),
+          groups: Array.from(section.querySelectorAll(SELECTORS.group)),
+        });
+      }
+    }
+    return out;
+  }
+
+  function pickActive(scopes) {
+    return (
+      scopes.find((sc) => sc.pane.offsetParent !== null && sc.groups.some((g) => g.dataset.cspKey)) ||
+      null
+    );
+  }
+
+  function getActiveScope() {
+    return pickActive(resolveScopes());
+  }
+
+  // ---- Collapsing --------------------------------------------------------
+
+  // Stash-native groups (Plugin Tasks): read the state from the collapse container
+  // (class "show") and click Stash's arrow button when needed.
+  function setNativeCollapsed(group, collapsed) {
+    const wrap = group.children[1];
+    const btn = group.querySelector(".setting-group-collapse-button");
+    if (!wrap || !btn) return;
+    const open = wrap.classList.contains("show");
+    if (collapsed !== open) return; // already in the desired state
+    const last = lastNativeClick.get(group) || 0;
+    if (Date.now() - last < 400) return; // animation still running
+    lastNativeClick.set(group, Date.now());
+    btn.click();
+  }
+
+  // Only data attributes are set, class/children are never modified:
+  // React overwrites className on every re-render (e.g. when enabling or
+  // disabling a plugin), data attributes are left untouched.
+  function enhanceGroup(group, sc) {
+    const header = group.firstElementChild;
+    if (!header || group.children.length < 2) return; // nothing to collapse
+
+    const key = sc.prefix + groupKey(header);
+    const ok = sc.native
+      ? group.hasAttribute("data-csp-native")
+      : header.hasAttribute("data-csp-header");
+    if (group.dataset.cspKey === key && ok) return;
+
+    group.dataset.cspKey = key;
+    const collapsed = isCollapsed(key);
+    if (sc.native) {
+      group.setAttribute("data-csp-native", "");
+      setNativeCollapsed(group, collapsed);
+    } else {
+      header.setAttribute("data-csp-header", "");
+      group.setAttribute("data-csp-collapsed", String(collapsed));
+    }
+  }
+
+  // ---- Search and sorting ------------------------------------------------
+
+  // Filters the groups by the search term (name, description, settings).
+  // Only data attributes, so React is not disturbed.
+  function applyFilter(sc, isActive) {
+    const q = isActive ? query.trim().toLowerCase() : "";
+    let shown = 0;
+    sc.groups.forEach((g) => {
+      const match = !q || (g.textContent || "").toLowerCase().includes(q);
+      if (match) {
+        shown++;
+        if (g.hasAttribute("data-csp-hidden")) g.removeAttribute("data-csp-hidden");
+      } else if (g.getAttribute("data-csp-hidden") !== "true") {
+        g.setAttribute("data-csp-hidden", "true");
+      }
+    });
+    if (isActive && countEl) countEl.textContent = q ? shown + " / " + sc.groups.length : "";
+  }
+
+  // Sorting purely via CSS "order" (flex container): DOM nodes are not moved,
+  // so React stays untouched. Non-plugin elements in the same container keep
+  // their original position; the groups only swap places among themselves.
+  function applySort(sc) {
+    const byParent = new Map();
+    sc.groups.forEach((g) => {
+      const list = byParent.get(g.parentElement) || [];
+      list.push(g);
+      byParent.set(g.parentElement, list);
+    });
+
+    byParent.forEach((list, parent) => {
+      const children = Array.from(parent.children);
+
+      if (sortMode === "default") {
+        if (parent.hasAttribute("data-csp-sorted")) parent.removeAttribute("data-csp-sorted");
+        children.forEach((c) => {
+          if (c.style.order) c.style.order = "";
+        });
+        return;
+      }
+
+      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+      const sorted = list.slice().sort((a, b) => collator.compare(nameOf(a), nameOf(b)));
+      if (sortMode === "desc") sorted.reverse();
+
+      const slots = [];
+      children.forEach((c, i) => {
+        if (list.includes(c)) slots.push(i);
+        else c.style.order = String(i);
+      });
+      sorted.forEach((g, j) => {
+        g.style.order = String(slots[j]);
+      });
+      if (parent.getAttribute("data-csp-sorted") !== "true") {
+        parent.setAttribute("data-csp-sorted", "true");
+      }
+    });
+  }
+
+  // ---- Klicks ------------------------------------------------------------
+
+  // A single delegated click handler -> survives replaced DOM nodes
+  document.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!target || !target.closest) return;
+
+    // Own mechanism ("Plugins" tab)
+    const header = target.closest("[data-csp-header]");
+    if (header) {
+      // Do not intercept clicks on controls (e.g. Enable/Disable)
+      if (target.closest("button, input, select, textarea, a, label")) return;
+      const group = header.parentElement;
+      if (!group || !group.dataset.cspKey) return;
+      const collapsed = group.getAttribute("data-csp-collapsed") !== "true";
+      group.setAttribute("data-csp-collapsed", String(collapsed));
+      setCollapsed(group.dataset.cspKey, collapsed);
+      return;
+    }
+
+    // Stash-native groups (Plugin Tasks): remember the result after the animation
+    const ng = target.closest("[data-csp-native]");
+    if (ng && ng.firstElementChild && ng.firstElementChild.contains(target)) {
+      setTimeout(() => {
+        const wrap = ng.children[1];
+        if (wrap && ng.dataset.cspKey) {
+          setCollapsed(ng.dataset.cspKey, !wrap.classList.contains("show"));
+        }
+      }, 500);
+    }
+  });
+
+  // ---- Toolbar -----------------------------------------------------------
+
+  // The toolbar is attached to document.body (outside the React tree) so React
+  // is not confused when it renders the plugin list.
+  function ensureToolbar() {
+    if (toolbar && document.body.contains(toolbar)) return toolbar;
+
+    toolbar = document.createElement("div");
+    toolbar.className = "csp-toolbar";
+
+    const mk = (label, collapse) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn btn-secondary btn-sm";
+      b.textContent = label;
+      b.addEventListener("click", () => {
+        const sc = getActiveScope();
+        if (!sc) return;
+        sc.groups.forEach((g) => {
+          const key = g.dataset.cspKey;
+          if (!key) return;
+          if (sc.native) setNativeCollapsed(g, collapse);
+          else g.setAttribute("data-csp-collapsed", String(collapse));
+          setCollapsed(key, collapse);
+        });
+      });
+      return b;
+    };
+
+    const input = document.createElement("input");
+    searchInput = input;
+    input.type = "search";
+    input.className = "form-control form-control-sm csp-search";
+    input.placeholder = "Search plugins…";
+    input.setAttribute("aria-label", "Search plugins");
+    input.value = query;
+    const onSearch = () => {
+      query = input.value;
+      const sc = getActiveScope();
+      if (!sc) return;
+      applyFilter(sc, true);
+      positionToolbar(sc);
+    };
+    input.addEventListener("input", onSearch);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        input.value = "";
+        onSearch();
+      }
+    });
+
+    countEl = document.createElement("span");
+    countEl.className = "csp-count";
+
+    const sort = document.createElement("select");
+    sort.className = "form-control form-control-sm csp-sort";
+    sort.setAttribute("aria-label", "Sort by");
+    [
+      ["default", "Default order"],
+      ["asc", "Name (A - Z)"],
+      ["desc", "Name (Z - A)"],
+    ].forEach(([value, label]) => {
+      const o = document.createElement("option");
+      o.value = value;
+      o.textContent = label;
+      sort.appendChild(o);
+    });
+    sort.value = sortMode;
+    sort.addEventListener("change", () => {
+      sortMode = sort.value;
+      try {
+        localStorage.setItem(SORT_KEY, sortMode);
+      } catch {}
+      resolveScopes().forEach(applySort);
+      const sc = getActiveScope();
+      if (sc) positionToolbar(sc);
+    });
+
+    toolbar.append(input, countEl, sort, mk("Collapse all", true), mk("Expand all", false));
+    document.body.appendChild(toolbar);
+    return toolbar;
+  }
+
+  // The toolbar stays outside the React tree and is placed by coordinates,
+  // right-aligned at the height of the heading.
+  function positionToolbar(sc) {
+    if (!toolbar || toolbar.style.display === "none") return;
+    const heading = sc.heading;
+
+    let top, right;
+    if (heading) {
+      const hr = heading.getBoundingClientRect();
+      const box = heading.parentElement || sc.pane;
+      const br = box.getBoundingClientRect();
+      const padRight = parseFloat(getComputedStyle(box).paddingRight) || 0;
+      top = hr.top + hr.height / 2 - toolbar.offsetHeight / 2;
+      right = br.right - padRight;
+    } else {
+      const first = sc.groups.find((g) => g.dataset.cspKey) || sc.groups[0];
+      top = first.getBoundingClientRect().top - toolbar.offsetHeight - 8;
+      const padRight = parseFloat(getComputedStyle(sc.pane).paddingRight) || 0;
+      right = sc.pane.getBoundingClientRect().right - padRight;
+    }
+
+    const topPx = Math.round(top + window.scrollY) + "px";
+    const leftPx = Math.round(Math.max(0, right - toolbar.offsetWidth + window.scrollX)) + "px";
+    if (toolbar.style.top !== topPx) toolbar.style.top = topPx;
+    if (toolbar.style.left !== leftPx) toolbar.style.left = leftPx;
+  }
+
+  // The heading moves when sections above it (e.g. "Generate") are collapsed or
+  // expanded. That only changes classes/heights and triggers no DOM mutation.
+  // Therefore the toolbar is re-aligned on every frame for a short time after
+  // clicks, animations and resizes.
+  function tick() {
+    rafId = 0;
+    if (currentScope && toolbar && toolbar.style.display !== "none") {
+      positionToolbar(currentScope);
+    }
+    if (performance.now() < settleUntil) rafId = requestAnimationFrame(tick);
+  }
+
+  function kick(ms) {
+    settleUntil = Math.max(settleUntil, performance.now() + (ms || 900));
+    if (!rafId) rafId = requestAnimationFrame(tick);
+  }
+
+  function updateToolbar(sc) {
+    currentScope = sc;
+    if (sc) {
+      ensureToolbar().style.display = "flex";
+      positionToolbar(sc);
+      kick();
+    } else if (toolbar) {
+      toolbar.style.display = "none";
+    }
+  }
+
+  // ---- Flow --------------------------------------------------------------
+
+  async function run() {
+    let scopes = resolveScopes();
+
+    // Newly appeared sections: re-read the setting (in case it changed)
+    Object.keys(ready).forEach((id) => {
+      if (!scopes.some((sc) => sc.id === id)) delete ready[id];
+    });
+    scopes.forEach((sc) => {
+      if (!ready[sc.id] || ready[sc.id].container !== sc.container) {
+        ready[sc.id] = {
+          container: sc.container,
+          promise: loadMode().then(() => clearSession(sc)),
+        };
+      }
+    });
+    await Promise.all(scopes.map((sc) => ready[sc.id].promise));
+
+    scopes = resolveScopes(); // the DOM may have changed while waiting
+    scopes.forEach((sc) => sc.groups.forEach((g) => enhanceGroup(g, sc)));
+
+    const active = pickActive(scopes);
+    const activeId = active ? active.id : null;
+    if (activeId !== lastActiveId) {
+      lastActiveId = activeId;
+      query = ""; // reset the search term when switching tabs
+      if (searchInput) searchInput.value = "";
+    }
+
+    scopes.forEach((sc) => {
+      applyFilter(sc, sc === active);
+      applySort(sc);
+    });
+    updateToolbar(active);
+  }
+
+  // React rendert dynamisch -> DOM beobachten (entprellt)
+  let timer = null;
+  const observer = new MutationObserver(() => {
+    clearTimeout(timer);
+    timer = setTimeout(run, 100);
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  if (window.PluginApi && PluginApi.Event) {
+    PluginApi.Event.addEventListener("stash:location", () => setTimeout(run, 50));
+  }
+
+  window.addEventListener("resize", () => kick());
+  document.addEventListener("click", () => kick(), true);
+  document.addEventListener("transitionend", () => kick(300), true);
+  document.addEventListener("animationend", () => kick(300), true);
+
+  run();
+})();

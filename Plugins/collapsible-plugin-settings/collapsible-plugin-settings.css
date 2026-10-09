@@ -1,0 +1,62 @@
+[data-csp-header] {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+[data-csp-header]::before {
+  content: "▾";
+  position: absolute;
+  left: 0.25rem;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: transform 0.15s ease;
+  opacity: 0.7;
+}
+
+[data-csp-collapsed="true"] > [data-csp-header]::before {
+  transform: translateY(-50%) rotate(-90deg);
+}
+
+[data-csp-collapsed="true"] > :not([data-csp-header]) {
+  display: none !important;
+}
+
+/* Toolbar right-aligned next to the "Plugins" heading (position set by JS) */
+.csp-toolbar {
+  display: none;
+  position: absolute;
+  z-index: 1030;
+  gap: 0.5rem;
+}
+
+.csp-toolbar {
+  align-items: center;
+}
+
+.csp-search {
+  width: 14rem;
+}
+
+.csp-count {
+  min-width: 3.5rem;
+  text-align: right;
+  font-size: 0.85rem;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+[data-csp-hidden="true"] {
+  display: none !important;
+}
+
+/* Sorting via CSS order: the container of the groups becomes a column */
+[data-csp-sorted="true"] {
+  display: flex !important;
+  flex-direction: column;
+}
+
+.csp-sort {
+  width: auto;
+}

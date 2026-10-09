@@ -1,0 +1,13 @@
+name: Collapsible Plugin Settings
+description: Makes the plugins in Settings → Plugins and Settings → Tasks → Plugin Tasks collapsible, searchable and sortable.
+version: 0.8.5
+settings:
+  defaultState:
+    displayName: Default state
+    description: 'Initial state of the plugin groups: "collapsed", "expanded" or "remember" (last saved state). Leave empty to use "remember".'
+    type: STRING
+ui:
+  javascript:
+    - collapsible-plugin-settings.js
+  css:
+    - collapsible-plugin-settings.css
