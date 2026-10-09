@@ -8,7 +8,7 @@
 (function () {
   "use strict";
 
-  const PLUGIN_ID = "scene-snapshot";
+  const PLUGIN_ID = "SceneSnapshot";
   const TASK_NAME = "Save Snapshot";
   const MIN_COUNT = 1;
   const MAX_COUNT = 24;
