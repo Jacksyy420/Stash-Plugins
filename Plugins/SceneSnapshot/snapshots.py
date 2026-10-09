@@ -16,7 +16,7 @@ import subprocess
 import sys
 from urllib import request
 
-PLUGIN_ID = "scene-snapshots"
+PLUGIN_ID = "sceneSnapshot"
 FORBIDDEN_NAME_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 
 
