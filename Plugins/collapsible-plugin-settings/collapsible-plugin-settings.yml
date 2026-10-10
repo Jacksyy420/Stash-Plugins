@@ -1,10 +1,22 @@
 name: Collapsible Plugin Settings
 description: Makes the plugins in Settings → Plugins and Settings → Tasks → Plugin Tasks collapsible, searchable and sortable.
-version: 0.8.5
+version: 0.10.0
 settings:
   defaultState:
     displayName: Default state
     description: 'Initial state of the plugin groups: "collapsed", "expanded" or "remember" (last saved state). Leave empty to use "remember".'
+    type: STRING
+  enableSlider:
+    displayName: Use a slider instead of the Enable/Disable buttons
+    description: Shows a slider in Settings → Plugins instead of the Enable and Disable buttons of the plugins.
+    type: BOOLEAN
+  sliderColorEnabled:
+    displayName: Slider color (plugin enabled)
+    description: 'Any CSS color, for example "#FFD700" or "gold". Leave empty for gold.'
+    type: STRING
+  sliderColorDisabled:
+    displayName: Slider color (plugin disabled)
+    description: 'Any CSS color, for example "#DC3545" or "red". Leave empty for red.'
     type: STRING
 ui:
   javascript:

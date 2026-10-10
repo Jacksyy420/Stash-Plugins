@@ -12,14 +12,32 @@ It works in two places:
 - **Collapsing:** Click the header of a plugin to collapse or expand it. In the "Plugins" tab an arrow shows the state. In "Plugin Tasks" the arrow button that Stash already provides is used.
 - **Remembers the state:** Which plugins are collapsed is stored in the browser (see the "Default state" setting).
 - **Search:** The search field to the right of the heading filters the plugins. The whole text of a group is searched: name, description and settings. The number of matches is shown next to it, for example `3 / 12`. Press Esc in the field to clear the search.
-- **Sorting:** Default order (as in Stash), Name (A - Z) or Name (Z - A). The choice is stored.
+- **Sorting:** Default order (as in Stash), Name (A - Z), Name (Z - A), Enabled first or Disabled first. Within the enabled and the disabled plugins the order is by name (A - Z). The choice is stored. The order updates immediately when you enable or disable a plugin.
 - **Collapse all / Expand all:** Applies to all plugins of the section that is currently visible.
+- **Slider instead of Enable/Disable (optional):** In *Settings → Plugins* the Enable and Disable buttons of the plugins can be replaced by a slider. Its color can be chosen separately for the enabled and the disabled state (default: gold when enabled, red when disabled). See the slider settings below.
 
 The toolbar with search, sorting and buttons is right-aligned at the height of the "Plugins" or "Plugin Tasks" heading. It follows the heading when sections above it (for example "Generate") are collapsed or expanded.
 
 ## Installation
 
 Tested with Stash v0.31.1.
+
+The easiest way is to add the plugin source to Stash:
+
+1. In Stash, go to **Settings → Plugins**.
+2. Under **Available Plugins**, click **Add Source**.
+3. Enter a name (for example `Collapsible Plugin Settings`) and the source URL:
+
+   ```
+   https://jacksyy420.github.io/Stash-Plugins/index.yml
+   ```
+
+4. Confirm, then tick **Collapsible Plugin Settings** in the list of available plugins and click **Install**.
+5. Hard-reload the page (Ctrl+F5) so that the JavaScript and CSS are loaded.
+
+Updates are offered in the **Installed Plugins** section of the same page.
+
+## Manual Installation
 
 1. Put the folder `collapsible-plugin-settings` into the plugin directory of Stash (next to `config.yml`, typically `~/.stash/plugins/`).
 2. In Stash, click **Reload plugins** under *Settings → Plugins*.
@@ -44,6 +62,20 @@ Found in the settings of this plugin under *Settings → Plugins*. Stash offers 
 | `expanded` | Everything is expanded when the tab is opened |
 
 With `collapsed` and `expanded` you can still collapse and expand groups by hand. This only lasts until you open the tab again or reload the page; after that the default applies again. Only `remember` stores your state permanently. The setting is read again whenever the tab is opened, so no page reload is needed after changing it.
+
+## Slider settings
+
+Found next to "Default state" in the settings of this plugin under *Settings → Plugins*:
+
+| Setting | Effect |
+| --- | --- |
+| Use a slider instead of the Enable/Disable buttons | Switch on to show a slider instead of the buttons. Off by default. |
+| Slider color (plugin enabled) | Any CSS color, for example `#FFD700` or `gold`. Empty = gold. |
+| Slider color (plugin disabled) | Any CSS color, for example `#DC3545` or `red`. Empty = red. |
+
+Stash has no color picker for plugin settings, so colors are typed in as text. An invalid value is ignored and the default color is used. Changes to these settings take effect shortly after you leave the field, without reloading the page.
+
+The slider is the original button of Stash, restyled with CSS. Clicking it enables or disables the plugin exactly like the button did, and the button text stays available for screen readers.
 
 ## Stored data
 
@@ -75,8 +107,10 @@ At the top of `collapsible-plugin-settings.js`:
 
 - The "Plugins" heading is recognized by its English text. With a different UI language the toolbar may end up at a fallback position (above the first plugin group).
 - In very narrow windows, for example on a phone, the toolbar can overlap the heading.
+- The slider replaces the Enable/Disable buttons only in the Plugins tab. It moves only after Stash has confirmed the change, so there can be a short delay after a click.
 - The search also covers descriptions and settings text, so a term can match plugins that only mention it in their description.
 - Sorting applies to both sections together.
+- "Enabled first" and "Disabled first" only make a difference in the Plugins tab: Stash lists only enabled plugins under "Plugin Tasks".
 
 ## Troubleshooting
 
@@ -95,6 +129,9 @@ This plugin was created with the help of AI (Claude by Anthropic). Besides check
 
 ## Changelog
 
+- **0.10.0**: Optional slider instead of the Enable/Disable buttons, with separate colors for enabled and disabled (default gold and red).
+- **0.9.0**: New sort options "Enabled first" and "Disabled first".
+- **0.8.6**: README: installation via plugin source (with source URL) added; "Installation" renamed to "Manual Installation".
 - **0.8.5**: Sort options renamed to "Name (A - Z)" and "Name (Z - A)".
 - **0.8.4**: README: tested Stash version (v0.31.1) added.
 - **0.8.3**: README: test status updated.

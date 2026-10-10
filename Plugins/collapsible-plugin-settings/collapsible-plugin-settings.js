@@ -4,7 +4,7 @@
   const PLUGIN_ID = "collapsible-plugin-settings"; // = file name of the YAML without extension
   const STORAGE_KEY = "csp-collapsed-groups";
   const SORT_KEY = "csp-sort-mode";
-  const SORT_MODES = ["default", "asc", "desc"];
+  const SORT_MODES = ["default", "asc", "desc", "enabled", "disabled"];
 
   // Adjust here if the DOM of your Stash version differs
   const SELECTORS = {
@@ -22,6 +22,9 @@
 
   // "collapsed" | "expanded" | "remember"
   let mode = "remember";
+  // Slider instead of the Enable/Disable buttons (Settings -> Plugins)
+  const DEFAULT_COLORS = { enabled: "#FFD700", disabled: "#dc3545" }; // gold / red
+  let switchOn = false;
   const ready = {}; // Scope-ID -> { container, promise }
   let lastActiveId = null;
   let toolbar = null;
@@ -31,7 +34,7 @@
   let rafId = 0;
   let settleUntil = 0;
   let query = ""; // current search term (not stored)
-  let sortMode = "default"; // "default" | "asc" | "desc" (stored)
+  let sortMode = "default"; // "default" | "asc" | "desc" | "enabled" | "disabled" (stored)
   try {
     const saved = localStorage.getItem(SORT_KEY);
     if (SORT_MODES.includes(saved)) sortMode = saved;
@@ -48,7 +51,29 @@
     return "remember";
   }
 
-  async function loadMode() {
+  // Accepts any CSS color ("#FFD700", "gold", "rgb(...)"); otherwise the default is used
+  function validColor(value, fallback) {
+    const c = String(value == null ? "" : value).trim();
+    if (!c) return fallback;
+    try {
+      if (typeof CSS !== "undefined" && CSS.supports) {
+        return CSS.supports("color", c) ? c : fallback;
+      }
+    } catch {}
+    return /^[#\w(),.%\s-]+$/.test(c) ? c : fallback;
+  }
+
+  function applySliderSettings(cfg) {
+    const on = cfg && cfg.enableSlider;
+    switchOn = on === true || String(on).toLowerCase() === "true";
+    const root = document.documentElement;
+    root.style.setProperty("--csp-on", validColor(cfg && cfg.sliderColorEnabled, DEFAULT_COLORS.enabled));
+    root.style.setProperty("--csp-off", validColor(cfg && cfg.sliderColorDisabled, DEFAULT_COLORS.disabled));
+  }
+
+  // Reads the settings of this plugin (Settings -> Plugins -> this plugin)
+  async function loadSettings() {
+    let cfg = null;
     try {
       const res = await fetch(new URL("graphql", document.baseURI), {
         method: "POST",
@@ -57,11 +82,13 @@
         body: JSON.stringify({ query: "query { configuration { plugins } }" }),
       });
       const json = await res.json();
-      const cfg = json && json.data && json.data.configuration.plugins;
-      mode = normalizeMode(cfg && cfg[PLUGIN_ID] && cfg[PLUGIN_ID].defaultState);
+      const all = json && json.data && json.data.configuration.plugins;
+      cfg = (all && all[PLUGIN_ID]) || {};
     } catch {
-      mode = "remember";
+      cfg = null;
     }
+    mode = normalizeMode(cfg && cfg.defaultState);
+    applySliderSettings(cfg);
   }
 
   function loadState() {
@@ -240,6 +267,46 @@
     if (isActive && countEl) countEl.textContent = q ? shown + " / " + sc.groups.length : "";
   }
 
+  function isDisabled(group) {
+    const header = group.firstElementChild;
+    return !!header && header.classList.contains("disabled");
+  }
+
+  function setAttr(el, name, value) {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+  }
+
+  // The Enable/Disable button is the last button in the header of a plugin,
+  // not counting Stash's collapse arrow (a "Reload UI" button may precede it).
+  function findEnableButton(group) {
+    const header = group.firstElementChild;
+    if (!header) return null;
+    const buttons = Array.from(header.querySelectorAll("button")).filter(
+      (b) => !b.classList.contains("setting-group-collapse-button")
+    );
+    return buttons.length ? buttons[buttons.length - 1] : null;
+  }
+
+  // The real button stays in place and keeps Stash's click handler. It is only
+  // marked with attributes and restyled as a slider by the CSS, so React is not
+  // disturbed. The state is read from the class "disabled" Stash sets on the header.
+  function applySwitch(group) {
+    const header = group.firstElementChild;
+    if (!header) return;
+    const target = switchOn ? findEnableButton(group) : null;
+    header.querySelectorAll("[data-csp-switch]").forEach((b) => {
+      if (b !== target) {
+        ["data-csp-switch", "data-csp-state", "role", "aria-checked"].forEach((n) => b.removeAttribute(n));
+      }
+    });
+    if (!target) return;
+    const on = !isDisabled(group);
+    setAttr(target, "data-csp-switch", "");
+    setAttr(target, "data-csp-state", on ? "on" : "off");
+    setAttr(target, "role", "switch");
+    setAttr(target, "aria-checked", String(on));
+  }
+
   // Sorting purely via CSS "order" (flex container): DOM nodes are not moved,
   // so React stays untouched. Non-plugin elements in the same container keep
   // their original position; the groups only swap places among themselves.
@@ -263,8 +330,17 @@
       }
 
       const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-      const sorted = list.slice().sort((a, b) => collator.compare(nameOf(a), nameOf(b)));
-      if (sortMode === "desc") sorted.reverse();
+      const byName = (a, b) => collator.compare(nameOf(a), nameOf(b));
+      let sorted;
+      if (sortMode === "enabled" || sortMode === "disabled") {
+        // Stash marks the header of a disabled plugin with the class "disabled".
+        // Groups with the same state are ordered by name (A - Z).
+        const rank = (g) => (isDisabled(g) === (sortMode === "disabled") ? 0 : 1);
+        sorted = list.slice().sort((a, b) => rank(a) - rank(b) || byName(a, b));
+      } else {
+        sorted = list.slice().sort(byName);
+        if (sortMode === "desc") sorted.reverse();
+      }
 
       const slots = [];
       children.forEach((c, i) => {
@@ -373,6 +449,8 @@
       ["default", "Default order"],
       ["asc", "Name (A - Z)"],
       ["desc", "Name (Z - A)"],
+      ["enabled", "Enabled first"],
+      ["disabled", "Disabled first"],
     ].forEach(([value, label]) => {
       const o = document.createElement("option");
       o.value = value;
@@ -463,7 +541,7 @@
       if (!ready[sc.id] || ready[sc.id].container !== sc.container) {
         ready[sc.id] = {
           container: sc.container,
-          promise: loadMode().then(() => clearSession(sc)),
+          promise: loadSettings().then(() => clearSession(sc)),
         };
       }
     });
@@ -471,6 +549,9 @@
 
     scopes = resolveScopes(); // the DOM may have changed while waiting
     scopes.forEach((sc) => sc.groups.forEach((g) => enhanceGroup(g, sc)));
+    scopes.forEach((sc) => {
+      if (sc.id === "plugins") sc.groups.forEach(applySwitch);
+    });
 
     const active = pickActive(scopes);
     const activeId = active ? active.id : null;
@@ -493,11 +574,39 @@
     clearTimeout(timer);
     timer = setTimeout(run, 100);
   });
-  observer.observe(document.body, { childList: true, subtree: true });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class"], // Stash toggles "disabled" when a plugin is enabled/disabled
+  });
 
   if (window.PluginApi && PluginApi.Event) {
     PluginApi.Event.addEventListener("stash:location", () => setTimeout(run, 50));
   }
+
+  // The settings of this plugin are edited on the same page. After a change they
+  // are read again, so the slider and its colors update without a page reload.
+  let settingsTimers = [];
+  function scheduleSettingsRefresh() {
+    settingsTimers.forEach(clearTimeout);
+    settingsTimers = [1200, 3500].map((ms) =>
+      setTimeout(async () => {
+        await loadSettings();
+        run();
+      }, ms)
+    );
+  }
+  ["change", "focusout"].forEach((type) =>
+    document.addEventListener(
+      type,
+      (e) => {
+        const t = e.target;
+        if (t && t.closest && t.closest('[id^="plugin-' + PLUGIN_ID + '-"]')) scheduleSettingsRefresh();
+      },
+      true
+    )
+  );
 
   window.addEventListener("resize", () => kick());
   document.addEventListener("click", () => kick(), true);
