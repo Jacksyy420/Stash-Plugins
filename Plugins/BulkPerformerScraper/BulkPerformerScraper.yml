@@ -1,0 +1,29 @@
+name: Bulk Performer Scraper
+description: Scrapes many performers at once, with selectable scrapers and fields.
+version: 0.3.1
+url: https://github.com/
+
+ui:
+  javascript:
+    - bulk_performer_scraper.js
+  css:
+    - bulk_performer_scraper.css
+
+exec:
+  - python
+  - "{pluginDir}/bulk_performer_scraper.py"
+interface: raw
+
+tasks:
+  - name: Bulk scrape performers
+    description: Started from the "Bulk Performer Scraper" page (requires the configuration from the UI).
+    defaultArgs:
+      mode: run
+  - name: Apply bulk scrape results
+    description: Applies the results selected in the review (started from the page).
+    defaultArgs:
+      mode: apply
+  - name: Restore last bulk scrape
+    description: Restores the values from the latest backup (images excluded).
+    defaultArgs:
+      mode: restore
