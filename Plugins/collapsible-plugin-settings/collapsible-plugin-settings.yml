@@ -1,4 +1,4 @@
-name: Collapsible Plugin Settings
+name: Collapsable Plugin Settings
 description: Makes the plugins in Settings → Plugins and Settings → Tasks → Plugin Tasks collapsible, searchable and sortable.
 version: 0.10.0
 settings:
