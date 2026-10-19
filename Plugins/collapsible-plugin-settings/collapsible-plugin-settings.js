@@ -15,8 +15,9 @@
   // Settings -> "Tasks" tab -> "Plugin Tasks" section
   const TASKS = {
     pane: "#configuration-tabs-tabpane-tasks",
-    // Heading of the section (lower case); add the text of your UI language if needed
-    headings: ["plugin tasks", "plugin-tasks", "plugin-aufgaben", "plugin aufgaben"],
+    // Only a fallback: the section is normally found by its position (see findPluginTasksSection).
+    // Heading text of the section (lower case); add the text of your UI language if needed
+    headings: ["plugin tasks", "plugin-tasks", "plugin-aufgaben", "plugin aufgaben", "插件任务"],
     prefix: "tasks:", // keeps identical plugin names in both tabs apart in storage
   };
 
@@ -75,16 +76,20 @@
   async function loadSettings() {
     let cfg = null;
     try {
-      const res = await fetch(new URL("graphql", document.baseURI), {
+      // Pass a plain string: other plugins wrap window.fetch and expect args[0] to be a string
+      const graphqlUrl = new URL("graphql", document.baseURI).href;
+      const res = await fetch(graphqlUrl, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: "query { configuration { plugins } }" }),
       });
       const json = await res.json();
+      if (json && json.errors) throw new Error(json.errors.map((e) => e.message).join("; "));
       const all = json && json.data && json.data.configuration.plugins;
       cfg = (all && all[PLUGIN_ID]) || {};
-    } catch {
+    } catch (err) {
+      console.warn("[Collapsable Plugin Settings] Could not read the plugin settings:", err);
       cfg = null;
     }
     mode = normalizeMode(cfg && cfg.defaultState);
@@ -144,18 +149,49 @@
   // Fallback: first heading outside of a plugin group.
   const HEADING_SELECTOR = "h1, h2, h3, h4, h5, h6, .setting-heading";
 
+  const h1Of = (sec) => Array.from(sec.children).find((c) => c.tagName === "H1") || null;
+
+  // Heading of the plugin list in the Plugins tab. Found by structure, so it works in every
+  // UI language: the last section that contains plugin groups (the sections "Installed Plugins"
+  // and "Available Plugins" come before it). Fallback: heading text, then the first heading.
   function findHeading(pane) {
+    const sections = Array.from(pane.querySelectorAll(".setting-section")).filter((sec) =>
+      sec.querySelector(SELECTORS.group)
+    );
+    const h = sections.length ? h1Of(sections[sections.length - 1]) : null;
+    if (h) return h;
+
     const scope =
       (pane.closest(".tab-content") && pane.closest(".tab-content").parentElement) ||
       pane.parentElement ||
       document;
     const all = Array.from(scope.querySelectorAll(HEADING_SELECTOR)).filter(
-      (h) => !h.closest("[data-csp-key]")
+      (el) => !el.closest("[data-csp-key]")
     );
     const exact = all.find(
-      (h) => h.offsetParent !== null && (h.textContent || "").trim().toLowerCase() === "plugins"
+      (el) => el.offsetParent !== null && (el.textContent || "").trim().toLowerCase() === "plugins"
     );
-    return exact || all.find((h) => pane.contains(h)) || null;
+    return exact || all.find((el) => pane.contains(el)) || null;
+  }
+
+  // The section "Plugin Tasks" in the Tasks tab. Found by structure, so it works in every UI
+  // language: Stash renders it as the last block of ".tasks-panel-tasks", after the last <hr>
+  // (and not at all when no enabled plugin has tasks). Fallback: heading text.
+  function findPluginTasksSection(tasksPane) {
+    const list = tasksPane.querySelector(".tasks-panel-tasks");
+    if (list) {
+      const hrs = Array.from(list.children).filter((c) => c.tagName === "HR");
+      const last = hrs[hrs.length - 1];
+      const next = last && last.nextElementSibling;
+      const sec = next && (next.matches(".setting-section") ? next : next.querySelector(".setting-section"));
+      if (sec && sec.querySelector(SELECTORS.group)) return sec;
+    }
+    return (
+      Array.from(tasksPane.querySelectorAll(".setting-section")).find((sec) => {
+        const h = h1Of(sec);
+        return h && TASKS.headings.includes((h.textContent || "").trim().toLowerCase());
+      }) || null
+    );
   }
 
   function resolveScopes() {
@@ -177,11 +213,7 @@
 
     const tasksPane = document.querySelector(TASKS.pane);
     if (tasksPane) {
-      const h1Of = (sec) => Array.from(sec.children).find((c) => c.tagName === "H1");
-      const section = Array.from(tasksPane.querySelectorAll(".setting-section")).find((sec) => {
-        const h = h1Of(sec);
-        return h && TASKS.headings.includes((h.textContent || "").trim().toLowerCase());
-      });
+      const section = findPluginTasksSection(tasksPane);
       if (section) {
         out.push({
           id: "tasks",

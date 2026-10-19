@@ -1,4 +1,4 @@
-# Collapsible Plugin Settings
+# Collapsable Plugin Settings
 
 A UI plugin for [Stash](https://github.com/stashapp/stash) that makes long plugin lists in the settings easier to handle.
 
@@ -26,13 +26,13 @@ The easiest way is to add the plugin source to Stash:
 
 1. In Stash, go to **Settings → Plugins**.
 2. Under **Available Plugins**, click **Add Source**.
-3. Enter a name (for example `Collapsible Plugin Settings`) and the source URL:
+3. Enter a name (for example `Collapsable Plugin Settings`) and the source URL:
 
    ```
    https://jacksyy420.github.io/Stash-Plugins/index.yml
    ```
 
-4. Confirm, then tick **Collapsible Plugin Settings** in the list of available plugins and click **Install**.
+4. Confirm, then tick **Collapsable Plugin Settings** in the list of available plugins and click **Install**.
 5. Hard-reload the page (Ctrl+F5) so that the JavaScript and CSS are loaded.
 
 Updates are offered in the **Installed Plugins** section of the same page.
@@ -93,7 +93,7 @@ The search term is not stored and is reset when you switch tabs. Because the dat
 At the top of `collapsible-plugin-settings.js`:
 
 - `SELECTORS`: selectors for the Plugins tab and for a plugin group. Adjust them if the DOM of your Stash version differs.
-- `TASKS.pane` and `TASKS.headings`: the tab and the heading of the "Plugin Tasks" section. The section is recognized by its heading text. Add the wording of your UI language to `headings` (in lower case). If the section is not recognized, nothing happens there.
+- `TASKS.pane` and `TASKS.headings`: the tab of the "Plugin Tasks" section and a fallback list of heading texts. The section is normally found by its position in the Tasks tab, which works in every UI language. The heading texts are only used if that fails; add the wording of your UI language (in lower case) if needed.
 - `PLUGIN_ID`: the ID of this plugin, i.e. the file name of the YAML without extension. If you rename the file, change this value as well.
 
 ## Technical notes
@@ -105,7 +105,7 @@ At the top of `collapsible-plugin-settings.js`:
 
 ## Known limitations
 
-- The "Plugins" heading is recognized by its English text. With a different UI language the toolbar may end up at a fallback position (above the first plugin group).
+- The texts of the toolbar (search field, sorting, buttons) are English in every UI language.
 - In very narrow windows, for example on a phone, the toolbar can overlap the heading.
 - The slider replaces the Enable/Disable buttons only in the Plugins tab. It moves only after Stash has confirmed the change, so there can be a short delay after a click.
 - The search also covers descriptions and settings text, so a term can match plugins that only mention it in their description.
@@ -116,7 +116,8 @@ At the top of `collapsible-plugin-settings.js`:
 
 - **Nothing happens:** Reload the plugins and hard-reload the page with Ctrl+F5. Check that the plugin is enabled in the plugin list.
 - **Groups are not recognized:** Look at the HTML of a plugin entry with the developer tools (right click → *Inspect*) and adjust `SELECTORS`.
-- **Toolbar is in the wrong place:** Check the HTML of the heading and add your wording to `TASKS.headings` if needed.
+- **Toolbar is in the wrong place:** Check the HTML of the heading. The heading is found by the structure of the page, so please report the HTML if it fails.
+- **The slider option has no effect:** Open the browser console (F12). If the plugin could not read its settings, it logs a warning starting with `[Collapsable Plugin Settings]`.
 - **Reset stored states:** Delete the keys `csp-collapsed-groups` and `csp-sort-mode` from the browser's `localStorage`.
 
 ## Uninstall
@@ -129,6 +130,10 @@ This plugin was created with the help of AI (Claude by Anthropic). Besides check
 
 ## Changelog
 
+- **0.10.4**: File names, folder name and plugin ID changed back to `collapsible-plugin-settings`. The displayed name stays "Collapsable Plugin Settings". Settings saved under the ID `collapsable-plugin-settings` (0.10.1 - 0.10.3) are not carried over.
+- **0.10.3**: Fix: the plugin settings are now read with a plain string URL, so the slider option also works when another plugin wraps `window.fetch` and expects a string (for example Shinobi-Api); read errors are logged to the console instead of being swallowed. The "Plugins" heading and the "Plugin Tasks" section are now found by the structure of the page instead of their English text, so they work in every UI language.
+- **0.10.2**: Version number updated.
+- **0.10.1**: Renamed from "Collapsible" to "Collapsable" (name, plugin ID, file and folder names). Settings saved under the old plugin ID are not carried over.
 - **0.10.0**: Optional slider instead of the Enable/Disable buttons, with separate colors for enabled and disabled (default gold and red).
 - **0.9.0**: New sort options "Enabled first" and "Disabled first".
 - **0.8.6**: README: installation via plugin source (with source URL) added; "Installation" renamed to "Manual Installation".
@@ -144,4 +149,4 @@ This plugin was created with the help of AI (Claude by Anthropic). Besides check
 - **0.4.0**: Search.
 - **0.3.x**: Toolbar next to the "Plugins" heading.
 - **0.2.x**: "Default state" setting; robustness when enabling and disabling plugins.
-- **0.1.0**: Collapsible plugin groups.
+- **0.1.0**: Collapsable plugin groups.
