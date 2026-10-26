@@ -26,8 +26,8 @@
 /* Toolbar right-aligned next to the "Plugins" heading (position set by JS) */
 .csp-toolbar {
   display: none;
-  position: absolute;
-  z-index: 1030;
+  position: fixed; /* viewport coordinates, set by JS */
+  z-index: 1000; /* below the navigation bar (1030) and modals */
   gap: 0.5rem;
 }
 

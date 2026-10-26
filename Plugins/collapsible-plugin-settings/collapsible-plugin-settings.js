@@ -526,10 +526,39 @@
       right = sc.pane.getBoundingClientRect().right - padRight;
     }
 
-    const topPx = Math.round(top + window.scrollY) + "px";
-    const leftPx = Math.round(Math.max(0, right - toolbar.offsetWidth + window.scrollX)) + "px";
+    // The toolbar is position: fixed, so viewport coordinates are used (no scroll offset).
+    // This also works when Stash scrolls an inner container instead of the window.
+    const topPx = Math.round(top) + "px";
+    const leftPx = Math.round(Math.max(0, right - toolbar.offsetWidth)) + "px";
     if (toolbar.style.top !== topPx) toolbar.style.top = topPx;
     if (toolbar.style.left !== leftPx) toolbar.style.left = leftPx;
+
+    // Hide the toolbar while its heading is scrolled out of view, so it never floats over the
+    // navigation bar or other content.
+    const hidden = top < headerBottom() || top + toolbar.offsetHeight > window.innerHeight;
+    const visibility = hidden ? "hidden" : "";
+    if (toolbar.style.visibility !== visibility) toolbar.style.visibility = visibility;
+  }
+
+  // Lower edge of everything that is stuck to the top of the viewport: the fixed navigation bar
+  // and sticky panels below it, for example the "Current tasks" (job queue) panel of the Tasks
+  // tab. Content that is only sticky but not stuck yet does not count. 0 if there is nothing.
+  function headerBottom() {
+    const stuck = [];
+    document
+      .querySelectorAll(".fixed-top, .sticky-top, nav.navbar, #tasks-panel .tasks-panel-queue")
+      .forEach((el) => {
+        const pos = getComputedStyle(el).position;
+        if (pos !== "fixed" && pos !== "sticky") return;
+        const r = el.getBoundingClientRect();
+        if (r.height > 0 && r.bottom < window.innerHeight * 0.8) stuck.push(r);
+      });
+    stuck.sort((x, y) => x.top - y.top);
+    let bottom = 0;
+    stuck.forEach((r) => {
+      if (r.top <= bottom + 2) bottom = Math.max(bottom, r.bottom); // stacked directly below
+    });
+    return bottom;
   }
 
   // The heading moves when sections above it (e.g. "Generate") are collapsed or
@@ -600,12 +629,41 @@
     updateToolbar(active);
   }
 
-  // React rendert dynamisch -> DOM beobachten (entprellt)
+  // React renders dynamically -> observe the DOM.
+  // The next run is scheduled only once per interval (throttle, not debounce): if other
+  // plugins keep touching the DOM, a debounce that restarts on every mutation would never fire.
   let timer = null;
-  const observer = new MutationObserver(() => {
-    clearTimeout(timer);
-    timer = setTimeout(run, 100);
-  });
+  let running = false;
+  let rerun = false;
+
+  async function runSafe() {
+    if (running) {
+      rerun = true; // changes arrived while running -> run once more afterwards
+      return;
+    }
+    running = true;
+    try {
+      await run();
+    } catch (err) {
+      console.warn("[Collapsable Plugin Settings] Update failed:", err);
+    } finally {
+      running = false;
+      if (rerun) {
+        rerun = false;
+        schedule();
+      }
+    }
+  }
+
+  function schedule(delay) {
+    if (timer !== null) return;
+    timer = setTimeout(() => {
+      timer = null;
+      runSafe();
+    }, delay == null ? 100 : delay);
+  }
+
+  const observer = new MutationObserver(() => schedule());
   observer.observe(document.body, {
     childList: true,
     subtree: true,
@@ -614,7 +672,7 @@
   });
 
   if (window.PluginApi && PluginApi.Event) {
-    PluginApi.Event.addEventListener("stash:location", () => setTimeout(run, 50));
+    PluginApi.Event.addEventListener("stash:location", () => schedule(50));
   }
 
   // The settings of this plugin are edited on the same page. After a change they
@@ -625,7 +683,7 @@
     settingsTimers = [1200, 3500].map((ms) =>
       setTimeout(async () => {
         await loadSettings();
-        run();
+        runSafe();
       }, ms)
     );
   }
@@ -641,9 +699,10 @@
   );
 
   window.addEventListener("resize", () => kick());
+  document.addEventListener("scroll", () => kick(150), { capture: true, passive: true });
   document.addEventListener("click", () => kick(), true);
   document.addEventListener("transitionend", () => kick(300), true);
   document.addEventListener("animationend", () => kick(300), true);
 
-  run();
+  runSafe();
 })();

@@ -16,7 +16,7 @@ It works in two places:
 - **Collapse all / Expand all:** Applies to all plugins of the section that is currently visible.
 - **Slider instead of Enable/Disable (optional):** In *Settings → Plugins* the Enable and Disable buttons of the plugins can be replaced by a slider. Its color can be chosen separately for the enabled and the disabled state (default: gold when enabled, red when disabled). See the slider settings below.
 
-The toolbar with search, sorting and buttons is right-aligned at the height of the "Plugins" or "Plugin Tasks" heading. It follows the heading when sections above it (for example "Generate") are collapsed or expanded.
+The toolbar with search, sorting and buttons is right-aligned at the height of the "Plugins" or "Plugin Tasks" heading. It follows the heading when sections above it (for example "Generate") are collapsed or expanded. The toolbar is hidden while its heading is scrolled out of view, so it never covers the navigation bar, the sticky "Current tasks" panel of the Tasks tab or other content.
 
 ## Installation
 
@@ -130,6 +130,9 @@ This plugin was created with the help of AI (Claude by Anthropic). Besides check
 
 ## Changelog
 
+- **0.10.7**: Fix: the toolbar no longer floats over the sticky "Current tasks" (job queue) panel in the Tasks tab when scrolling.
+- **0.10.6**: Fix: the toolbar (search, sorting, buttons) no longer floats over the navigation bar and other content when scrolling. It now follows its heading while scrolling and is hidden while the heading is out of view.
+- **0.10.5**: Fix: the page observer no longer waits for a quiet DOM. Other plugins that keep changing the page (own observers, floating buttons, modals) could prevent updates after a re-render, so the toolbar and collapsing silently stopped working. Updates now run at most every 100 ms, one after the other, and errors are logged to the console.
 - **0.10.4**: File names, folder name and plugin ID changed back to `collapsible-plugin-settings`. The displayed name stays "Collapsable Plugin Settings". Settings saved under the ID `collapsable-plugin-settings` (0.10.1 - 0.10.3) are not carried over.
 - **0.10.3**: Fix: the plugin settings are now read with a plain string URL, so the slider option also works when another plugin wraps `window.fetch` and expects a string (for example Shinobi-Api); read errors are logged to the console instead of being swallowed. The "Plugins" heading and the "Plugin Tasks" section are now found by the structure of the page instead of their English text, so they work in every UI language.
 - **0.10.2**: Version number updated.
