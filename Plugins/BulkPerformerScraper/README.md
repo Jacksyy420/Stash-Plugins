@@ -2,7 +2,7 @@
 
 Scrapes many Performers at once. You choose which Scrapers are used and which fields are applied.
 
-> **Status:** Early version (0.5.3). The plugin has not yet been tested against a running Stash instance. Always start with the review before applying anything.
+> **Status:** Early version (0.5.4). The plugin has not yet been tested against a running Stash instance. Always start with the review before applying anything.
 > 
 > **Note:** This plugin was created with the help of AI (Claude by Anthropic). Review the code before use and keep a backup of your Stash database.
 
