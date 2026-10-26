@@ -1,6 +1,6 @@
 name: Bulk Performer Scraper
 description: Scrapes many performers at once, with selectable scrapers and fields.
-version: 0.5.3
+version: 0.5.4
 url: https://github.com/
 
 ui:
