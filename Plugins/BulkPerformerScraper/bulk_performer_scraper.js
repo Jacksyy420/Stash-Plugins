@@ -1,8 +1,8 @@
 (function () {
   "use strict";
 
-  const PLUGIN_ID = "bulk_performer_scraper";
-  const ROUTE = "/plugin/bulk-performer-scraper";
+  const PLUGIN_ID = "BulkPerformerScraper";
+  const ROUTE = "/plugin/BulkPerformerScraper";
   const TASK_RUN = "Bulk scrape performers";
   const TASK_APPLY = "Apply bulk scrape results";
   const TASK_RESTORE = "Restore last bulk scrape";
