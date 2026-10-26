@@ -6,7 +6,7 @@
   const TASK_RUN = "Bulk scrape performers";
   const TASK_APPLY = "Apply bulk scrape results";
   const TASK_RESTORE = "Restore last bulk scrape";
-  const STORE_KEY = "bulk_performer_scraper_settings";
+  const STORE_KEY = "BulkPerformerScraper_settings";
 
   const FIELDS = [
     ["image", "Image"],
@@ -1501,7 +1501,7 @@
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "bulk_performer_scraper_review.json";
+      a.download = "BulkPerformerScraper_review.json";
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1775,7 +1775,7 @@
             setHosted(true);
           }
         } catch (e) {
-          console.warn("[bulk_performer_scraper] toolbar placement failed", e);
+          console.warn("[BulkPerformerScraper] toolbar placement failed", e);
         }
       };
 
@@ -1821,6 +1821,6 @@
       return h(React.Fragment, null, h(PerformersToolbar), next.apply(null, args.slice(0, -1)));
     });
   } catch (e) {
-    console.error("[bulk_performer_scraper] patch.instead(FilteredPerformerList) failed", e);
+    console.error("[BulkPerformerScraper] patch.instead(FilteredPerformerList) failed", e);
   }
 })();
