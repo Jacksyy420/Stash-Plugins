@@ -279,3 +279,24 @@
   color: #fff;
   border: 1px solid #8a9199;
 }
+
+/* Button placed into a row of another plugin next to its buttons */
+.bs-performers-toolbar.bs-in-host {
+  display: inline-flex;
+  padding-bottom: 0;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+/* Aliases column of the possible matches */
+.bs-cand-aliases {
+  max-width: 14rem;
+  overflow-wrap: anywhere;
+}
+
+/* Scraper and values shown behind the "Review" title while scraping */
+.bs-title-info {
+  font-size: 0.6em;
+  font-weight: normal;
+  margin-left: 0.75rem;
+}

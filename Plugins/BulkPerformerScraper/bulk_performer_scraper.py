@@ -32,7 +32,7 @@ STRING_KEYS = {
 PERFORMER_FIELDS = (
     "id name disambiguation gender birthdate death_date ethnicity country "
     "eye_color hair_color height_cm weight measurements fake_tits penis_length "
-    "circumcised career_length tattoos piercings alias_list urls details image_path tags { id name }"
+    "circumcised career_length tattoos piercings alias_list urls details image_path stash_ids { endpoint stash_id } tags { id name }"
 )
 SCRAPED_FIELDS = (
     "stored_id name disambiguation gender url urls birthdate death_date ethnicity "
@@ -405,6 +405,17 @@ def fetch_details(stash, source_id, spec, raw):
     return merged
 
 
+def _norm_endpoint(e):
+    return str(e or "").strip().lower().rstrip("/")
+
+
+def stash_id_for(perf, endpoint):
+    for x in perf.get("stash_ids") or []:
+        if x and x.get("stash_id") and _norm_endpoint(x.get("endpoint")) == _norm_endpoint(endpoint):
+            return x["stash_id"]
+    return None
+
+
 def scrape(stash, source_id, spec, perf, threshold, use_disambig):
     """Returns (result, unsure). unsure = there were matches, but the name does not fit."""
     unsure = False
@@ -416,6 +427,17 @@ def scrape(stash, source_id, spec, perf, threshold, use_disambig):
     else:
         source = {"scraper_id": source_id}
         supported = spec.get("supported_scrapes") or []
+
+    # Stash-Box (e.g. StashDB, ThePornDB): if the performer already has a Stash ID for this endpoint, use it directly
+    if source_id.startswith("stashbox:"):
+        sid = stash_id_for(perf, source["stash_box_endpoint"])
+        if sid:
+            try:
+                res = stash.call(Q_SCRAPE, {"source": source, "input": {"query": sid}})["scrapeSinglePerformer"]
+                if isinstance(res, list) and len(res) == 1 and res[0]:
+                    return res[0], False
+            except Exception:
+                pass  # Stash ID lookup not possible: fall back to the normal search
 
     inputs = []
     if "FRAGMENT" in supported:

@@ -2,11 +2,14 @@
 
 Scrapes many Performers at once. You choose which Scrapers are used and which fields are applied.
 
-> **Status:** Early version (0.3.1). The plugin has not yet been tested against a running Stash instance. Always start with the review before applying anything.
+> **Status:** Early version (0.5.3). The plugin has not yet been tested against a running Stash instance. Always start with the review before applying anything.
+> 
+> **Note:** This plugin was created with the help of AI (Claude by Anthropic). Review the code before use and keep a backup of your Stash database.
 
 ## Features
 
 - **One Scraper per run:** Choose either a community Scraper or a Stash-Box (e.g. StashDB). Only one Scraper is used at a time.
+- **Stash ID lookup:** With a Stash-Box such as StashDB or ThePornDB selected, a Performer that already has a Stash ID for that endpoint is looked up directly by this ID instead of by name. The result is then treated as a certain match (note: "Matched via Stash ID"). If the lookup returns nothing usable, the normal name search is used.
 - **Field selection:** Image, Disambiguation, Gender, Birthdate and Death date, Ethnicity, Country, Eye and Hair color, Height, Weight, Measurements, Fake tits, Penis length, Circumcised, Career length, Tattoos, Piercings, Aliases, URLs, Tags and Details.
 - **Two modes:** Fill empty fields only (default) or overwrite existing values.
 - **Everything in one window:** Opening the plugin shows a window with the settings (Scrapers, fields, Performers, genders, options). **Start review** switches to the same view, where Performers are checked live. Nothing is written during this step. For each Performer you see what would change (before/new, with a preview for images).
@@ -16,6 +19,9 @@ Scrapes many Performers at once. You choose which Scrapers are used and which fi
 - **Performer filter:** All Performers or only Performers with a specific Tag. You also select the genders via checkboxes (Male, Female, Transgender male, Transgender female, Intersex, Non-binary and "Not specified").
 - **Skipping without a request:** If "Overwrite existing values" is off, Performers whose selected fields are all filled are skipped. No request is sent to the Scrapers and the wait time is omitted. They appear in the list with the status **Skipped**.
 - **Match and link to the Scraper page:** For results with status **Changes**, the expanded entry shows the name of the match and a link to its page at the Scraper.
+- **Scraper, values and criteria in the title:** A small text behind the title "Review" (during scraping and afterwards) shows the Scraper in use, the requested values and the criteria for the Performers (all Performers or a tag, genders, overwrite or fill empty only). Hover for the full text.
+- **Re-sorting after a manual selection:** When you select a match for an **Unsure** entry, it is re-classified as **Changes**, **No values** (the match provides none of the requested values) or **Skipped** (its values are already stored). The list is re-sorted and scrolled so that the entry is at the top (only if the current filter still includes it). **Selected – undo** returns it to **Unsure**.
+- **Aliases of possible matches:** The table of possible matches shows the Aliases of each match. For community Scrapers they are loaded when you expand an unsure entry (search results are often brief).
 - **Possible matches for unsure results:** For status **Unsure**, the list shows the candidate matches (name, details, similarity, source, link and image). With **Select** you manually apply one of them to the Performer.
 - **Profile with one click:** The name and image of a Performer open its Stash profile in a new tab.
 - **Disambiguation and Aliases:** The Disambiguation is shown in parentheses after the name. Expanding an entry shows the Performer's stored Aliases.
@@ -31,7 +37,7 @@ Scrapes many Performers at once. You choose which Scrapers are used and which fi
    - `bulk_performer_scraper.js`
    - `bulk_performer_scraper.css`
 2. In Stash, click **Reload Plugins** under *Settings → Plugins*.
-3. The **Bulk Scraper** button appears above the list in the *Performers* tab.
+3. The **Bulk Scraper** button appears above the list in the *Performers* tab. If another plugin already has a row with buttons there, the button is placed next to those buttons instead of in a row of its own (see Troubleshooting).
 
 **Requirements:** Python 3 must be callable as `python`. If you only have `python3`, change the `exec` entry in `bulk_performer_scraper.yml`. No additional Python packages are required.
 
@@ -142,6 +148,7 @@ Backups and Reports are not deleted automatically.
 
 | Problem | Solution |
 | --- | --- |
+| The button in the *Performers* tab sits in its own row or in an unexpected place | The plugin looks for a small row with buttons from another plugin above the list and moves its button into it. This detection is heuristic. If no such row is found (or the other plugin re-renders it), the button stays in its own row above the list. |
 | The button in the *Performers* tab is missing | The plugin replaces the `FilteredPerformerList` component there. If it does not exist under this name in your Stash version, the button is not shown (error messages appear in the browser console). The page is then only reachable directly via the address `/plugin/bulk-performer-scraper`. |
 | The Task fails with a GraphQL error | Some field names differ depending on the Stash version (e.g. `career_length`). Adjust the constants `PERFORMER_FIELDS` and `SCRAPED_FIELDS` at the top of `bulk_performer_scraper.py`. |
 | Scraper list is empty | Install Scrapers (*Settings → Metadata Providers*) and reload the page. |

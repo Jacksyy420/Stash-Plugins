@@ -53,7 +53,7 @@
   const PERFORMER_FIELDS =
     "id name disambiguation gender birthdate death_date ethnicity country eye_color hair_color " +
     "height_cm weight measurements fake_tits penis_length circumcised career_length tattoos piercings " +
-    "alias_list urls details image_path scene_count image_count tags { id name }";
+    "alias_list urls details image_path scene_count image_count stash_ids { endpoint stash_id } tags { id name }";
   const SCRAPED_FIELDS =
     "stored_id name disambiguation gender url urls birthdate death_date ethnicity country eye_color " +
     "hair_color height weight measurements fake_tits penis_length circumcised career_length tattoos " +
@@ -467,6 +467,12 @@
     return { raw: merged, note: "Details were loaded from the scraper." };
   }
 
+  const normEndpoint = (e) => String(e || "").trim().toLowerCase().replace(/\/+$/, "");
+  function stashIdFor(perf, endpoint) {
+    const hit = (perf.stash_ids || []).find((x) => x && x.stash_id && normEndpoint(x.endpoint) === normEndpoint(endpoint));
+    return hit ? hit.stash_id : null;
+  }
+
   async function scrapeOne(sourceId, spec, perf, cfg) {
     let source, supported;
     if (sourceId.startsWith("stashbox:")) {
@@ -475,6 +481,20 @@
     } else {
       source = { scraper_id: sourceId };
       supported = spec.supported_scrapes || [];
+    }
+    // Stash-Box (e.g. StashDB, ThePornDB): if the performer already has a Stash ID for this endpoint, use it directly
+    if (sourceId.startsWith("stashbox:")) {
+      const sid = stashIdFor(perf, source.stash_box_endpoint);
+      if (sid) {
+        try {
+          const res = (await gql(Q_SCRAPE, { source, input: { query: sid } })).scrapeSinglePerformer;
+          if (Array.isArray(res) && res.length === 1 && res[0]) {
+            return { cand: res[0], unsure: false, best: null, reason: null, candidates: [], note: "Matched via Stash ID." };
+          }
+        } catch (e) {
+          /* Stash ID lookup not possible: fall back to the normal search */
+        }
+      }
     }
     const lists = [];
     if (supported.includes("FRAGMENT")) {
@@ -600,6 +620,7 @@
     const candidates = [];
     const matches = [];
     let found_any = false;
+    let matchNote = null;
     let unsure = false,
       best = null,
       reason = null;
@@ -614,6 +635,7 @@
         best = best || r.best;
         r.candidates.forEach((c) => candidates.push(c));
         if (r.cand) {
+          if (r.note && !matchNote) matchNote = r.note;
           found_any = true;
           matches.push({ source: sid, name: r.cand.name || "", url: r.cand.url || (r.cand.urls && r.cand.urls[0]) || "" });
           for (const f of remaining) {
@@ -635,6 +657,7 @@
       res.status = "changes";
       // only show matches that actually provided values
       res.matches = matches.filter((m) => res.scrapers.includes(m.source));
+      if (matchNote) res.message = matchNote;
     } else if (unsure) {
       res.status = "unsure";
       res.best = best;
@@ -669,6 +692,29 @@
   }
 
   // Applies one of the listed results of an unsure performer. Returns a new result.
+  // Loads the full data of a candidate from the scraper (once); Stash-Box results are already complete.
+  async function detailCandidate(cand) {
+    if (cand.detailed) return cand;
+    const specs = await getSpecs();
+    const e = await enrichRaw(cand.source, specs[cand.source] || {}, cand.raw);
+    return Object.assign({}, cand, {
+      raw: e.raw,
+      detailed: true,
+      detailNote: e.note,
+      disambiguation: e.raw.disambiguation || cand.disambiguation,
+      birthdate: e.raw.birthdate || cand.birthdate,
+      country: e.raw.country || cand.country,
+      image: (e.raw.images && e.raw.images[0]) || cand.image,
+      url: cand.url || e.raw.url || "",
+    });
+  }
+
+  function aliasesOf(raw) {
+    const a = raw && raw.aliases;
+    if (Array.isArray(a)) return a.filter(Boolean);
+    return a ? String(a).split(/\s*[,;\/]\s*/).filter(Boolean) : [];
+  }
+
   async function chooseCandidate(res, index, cfg) {
     let cand = res.candidates[index];
     let candidates = res.candidates;
@@ -676,19 +722,8 @@
 
     // Search results are often incomplete: load the result's details from the scraper (once per result)
     if (!cand.detailed) {
-      const specs = await getSpecs();
-      const e = await enrichRaw(cand.source, specs[cand.source] || {}, cand.raw);
-      cand = Object.assign({}, cand, {
-        raw: e.raw,
-        detailed: true,
-        detailNote: e.note,
-        disambiguation: e.raw.disambiguation || cand.disambiguation,
-        birthdate: e.raw.birthdate || cand.birthdate,
-        country: e.raw.country || cand.country,
-        image: (e.raw.images && e.raw.images[0]) || cand.image,
-        url: cand.url || e.raw.url || "",
-      });
-      candidates = candidates.map((c, i) => (i === index ? cand : c));
+      cand = await detailCandidate(cand);
+      candidates = candidates.map((c, k) => (k === index ? cand : c));
     }
 
     const wanted = cfg.fields.filter((f) => cfg.overwrite || isEmpty(f, perf));
@@ -704,21 +739,26 @@
     }
     const next = Object.assign({}, res, { candidates, update: {}, old: {}, changes: [], newTags: [], scrapers: [], matches: [], choiceNote: null });
     buildChanges(next, perf, cfg, found, used);
-    if (!next.changes.length) {
-      // Result provides nothing new: leave the result unchanged, but explain what was requested and what was available
-      const have = FIELDS.filter(([f]) => (f === "tags" ? (cand.raw.tags || []).length > 0 : convertSimple(f, cand.raw) != null)).map((x) => x[1]);
-      return Object.assign({}, res, {
-        candidates,
-        choiceNote:
-          "The result \"" + (cand.name || "unnamed") + "\" provides no changes for the selected fields. Requested: " +
-          (wanted.map((f) => FIELD_LABEL[f]).join(", ") || "–") + ". Available in result: " + (have.join(", ") || "nothing") + ". " + (cand.detailNote || ""),
-      });
-    }
     next.origStatus = res.origStatus || res.status;
     next.origMessage = res.origMessage || res.message;
-    next.status = "changes";
-    next.matches = [{ source: cand.source, name: cand.name || "", url: cand.url || "" }];
     next.chosen = index;
+    next.matches = [{ source: cand.source, name: cand.name || "", url: cand.url || "" }];
+    if (!next.changes.length) {
+      // The chosen result adds nothing: "No values" if it provides none of the requested fields,
+      // otherwise "Skipped" (everything it provides is already stored)
+      const have = FIELDS.filter(([f]) => wanted.includes(f) && (f === "tags" ? (cand.raw.tags || []).length > 0 : convertSimple(f, cand.raw) != null));
+      if (!have.length) {
+        next.status = "no_data";
+        next.message =
+          "Manually selected result \"" + (cand.name || "unnamed") + "\" provides none of the requested values (" +
+          (wanted.map((f) => FIELD_LABEL[f]).join(", ") || "–") + "). " + (cand.detailNote || "");
+      } else {
+        next.status = "skipped";
+        next.message = "Manually selected result \"" + (cand.name || "unnamed") + "\": its values are already stored, nothing to change.";
+      }
+      return next;
+    }
+    next.status = "changes";
     next.message = "Manually selected result: " + (cand.name || "unnamed");
     return next;
   }
@@ -994,6 +1034,7 @@
         useDisambig: s.useDisambig,
         genders: genders(),
         scope: scope(),
+        tagName: s.scopeType === "tag" ? ((tags.find((t) => t.id === s.tagId) || {}).name || s.tagId) : null,
       });
     }
 
@@ -1158,7 +1199,7 @@
       h(
         "table",
         { className: "table table-sm bs-table bs-candidates" },
-        h("thead", null, h("tr", null, h("th", null, ""), h("th", null, "Name"), h("th", null, "Details"), h("th", null, "Similarity"), h("th", null, "Source"), h("th", null, ""))),
+        h("thead", null, h("tr", null, h("th", null, ""), h("th", null, "Name"), h("th", null, "Details"), h("th", null, "Aliases"), h("th", null, "Similarity"), h("th", null, "Source"), h("th", null, ""))),
         h(
           "tbody",
           null,
@@ -1179,6 +1220,15 @@
                 c.url ? h("a", { href: c.url, target: "_blank", rel: "noopener noreferrer" }, c.name || "(unnamed)") : c.name || "(unnamed)"
               ),
               h("td", null, [c.disambiguation, c.birthdate, c.country].filter(Boolean).join(" · ") || "—"),
+              h(
+                "td",
+                { className: "bs-cand-aliases" },
+                aliasesOf(c.raw).length
+                  ? aliasesOf(c.raw).join(", ")
+                  : props.loadingDetails && !c.detailed
+                  ? h("span", { className: "text-muted" }, "Loading …")
+                  : "—"
+              ),
               h("td", null, Math.round(c.score * 100) + " %"),
               h("td", null, props.sourceNames[c.source] || c.source),
               h(
@@ -1205,7 +1255,7 @@
       (r.candidates.length ? " · " + r.candidates.length + " possible matches" : "");
     return h(
       "div",
-      { className: "bs-result" },
+      { className: "bs-result", "data-result-id": r.id },
       h(
         "div",
         { className: "bs-result-head" },
@@ -1282,6 +1332,7 @@
                 chosen: r.chosen,
                 busy: props.busy,
                 busyIndex: props.busyIndex,
+                loadingDetails: !!props.loadingDetails,
                 onChoose: (i) => props.onChoose(r, i),
                 onClear: () => props.onClear(r),
               })
@@ -1353,22 +1404,85 @@
     }
 
     const [choosing, setChoosing] = useState(null); // { id, index } while details are being loaded
+    const [detailsLoading, setDetailsLoading] = useState({});
+    const detailsRequested = React.useRef({});
+    const pendingScroll = React.useRef(null);
     // Replace a performer's result in the session state (always work on the latest state)
     function replaceResult(next) {
       patchSession({ results: session.state.results.map((x) => (x.id === next.id ? next : x)) });
     }
+    // Re-sorts the entry (its status changed) and scrolls so that it is at the top of the list
+    function revealAfterChange(next) {
+      if (ui.filter === "all" || ui.filter === next.status) pendingScroll.current = next.id;
+    }
     async function chooseOne(r, index) {
       setChoosing({ id: r.id, index });
       try {
-        replaceResult(await chooseCandidate(r, index, cfg));
+        const next = await chooseCandidate(r, index, cfg);
+        replaceResult(next);
+        revealAfterChange(next);
       } catch (e) {
         setMessage({ error: true, text: "Could not apply result: " + e.message });
       }
       setChoosing(null);
     }
     function clearOne(r) {
-      replaceResult(clearChoice(r));
+      const next = clearChoice(r);
+      replaceResult(next);
+      revealAfterChange(next);
     }
+
+    // Aliases of the possible matches: search results are often brief, so load the details when an unsure entry is opened
+    useEffect(() => {
+      st.results.forEach((r) => {
+        if (r.status !== "unsure" || !expanded[r.id] || detailsRequested.current[r.id]) return;
+        if (!r.candidates.some((c) => !c.detailed && !c.source.startsWith("stashbox:"))) return;
+        detailsRequested.current[r.id] = true;
+        setDetailsLoading((prev) => Object.assign({}, prev, { [r.id]: true }));
+        (async () => {
+          try {
+            for (let k = 0; k < r.candidates.length; k++) {
+              const cur = session.state && session.state.results.find((x) => x.id === r.id);
+              const c = cur && cur.candidates[k];
+              if (!c || c.detailed || c.source.startsWith("stashbox:")) continue;
+              let d;
+              try {
+                d = await detailCandidate(c);
+              } catch (e) {
+                d = Object.assign({}, c, { detailed: true, detailNote: String(e.message || e) });
+              }
+              const latest = session.state.results.find((x) => x.id === r.id);
+              if (latest && latest.candidates[k] && latest.candidates[k].name === c.name) {
+                replaceResult(Object.assign({}, latest, { candidates: latest.candidates.map((x, i) => (i === k ? d : x)) }));
+              }
+              await sleep(cfg.delay * 1000);
+            }
+          } finally {
+            setDetailsLoading((prev) => Object.assign({}, prev, { [r.id]: false }));
+          }
+        })();
+      });
+    }, [expanded, st.results]);
+
+    // Scroll to the re-sorted entry (extend the visible part of the list if needed)
+    useEffect(() => {
+      const id = pendingScroll.current;
+      if (id == null) return;
+      const idx = visible.findIndex((x) => x.id === id);
+      if (idx < 0) {
+        pendingScroll.current = null;
+        return;
+      }
+      if (idx >= limit) {
+        setLimit(idx + 1);
+        return;
+      }
+      pendingScroll.current = null;
+      setTimeout(() => {
+        const el = document.querySelector('[data-result-id="' + id + '"]');
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: "start" });
+      }, 0);
+    }, [visible, limit]);
 
     function exportJson() {
       const data = st.results.map((r) => ({
@@ -1452,6 +1566,7 @@
             onExpand: (id) => setExpanded((prev) => Object.assign({}, prev, { [id]: !prev[id] })),
             busy: choosing != null || st.applied,
             busyIndex: choosing && choosing.id === r.id ? choosing.index : null,
+            loadingDetails: !!detailsLoading[r.id],
             onChoose: chooseOne,
             onClear: clearOne,
           })
@@ -1516,10 +1631,48 @@
     return h(
       Modal,
       { show: true, onHide: props.onClose, size: "xl", backdrop: "static", dialogClassName: "bs-modal-dialog" },
-      h(Modal.Header, { closeButton: true }, h(Modal.Title, null, st ? "Review" : "Bulk Performer Scraper – Settings")),
+      h(
+        Modal.Header,
+        { closeButton: true },
+        h(
+          Modal.Title,
+          null,
+          st ? "Review" : "Bulk Performer Scraper – Settings",
+          st && st.cfg
+            ? h(
+                "small",
+                {
+                  className: "bs-title-info",
+                  title: scrapeInfo(st.cfg).full,
+                  // inline style so that the text stays visible regardless of theme and cached CSS
+                  style: { fontSize: "0.6em", fontWeight: "normal", marginLeft: "0.75rem", opacity: 0.85 },
+                },
+                scrapeInfo(st.cfg).short
+              )
+            : null
+        )
+      ),
       loadError && !st && h("div", { className: "alert alert-danger m-3" }, loadError),
       st ? h(ResultsView, { st, onClose: props.onClose }) : h(SetupView, { s, set, sources, tags, onClose: props.onClose })
     );
+  }
+
+  // Short info shown behind the "Review" title: scraper, requested values and which performers are scraped
+  function scrapeInfo(cfg) {
+    const names = (cfg.scrapers || []).map((id) => (cfg.sourceNames && cfg.sourceNames[id]) || id).join(", ");
+    const all = cfg.fields.length === FIELDS.length;
+    const labels = cfg.fields.map((f) => FIELD_LABEL[f] || f);
+    const vals = all ? "all values" : labels.length > 4 ? labels.slice(0, 4).join(", ") + " +" + (labels.length - 4) : labels.join(", ");
+
+    const genderLabels = cfg.genders ? GENDER_OPTIONS.filter((g) => cfg.genders.includes(g[0])).map((g) => g[1]) : null;
+    const genderShort = genderLabels ? (genderLabels.length > 2 ? genderLabels.slice(0, 2).join(", ") + " +" + (genderLabels.length - 2) : genderLabels.join(", ")) : "all genders";
+    const scope = cfg.scope && cfg.scope.type === "tag" ? "tag \"" + (cfg.tagName || cfg.scope.tag_id) + "\"" : "all performers";
+    const mode = cfg.overwrite ? "overwrite existing values" : "fill empty values only";
+
+    const full =
+      "Scraper: " + names + " · Values: " + (all ? "all (" + labels.join(", ") + ")" : labels.join(", ")) +
+      " · Performers: " + scope + ", genders: " + (genderLabels ? genderLabels.join(", ") : "all") + " · " + mode;
+    return { full, short: names + " · " + vals + " · " + scope + " · " + genderShort + " · " + (cfg.overwrite ? "overwrite" : "fill empty") };
   }
 
   function BulkPerformerScraperPage() {
@@ -1565,10 +1718,98 @@
 
   // Button above the performer list ("Performers" tab), following the Librarian pattern:
   // the list component is replaced, a toolbar is put in front and the original is rendered below it.
+  //
+  // Other plugins use the same spot and add their own row above the list. To avoid stacking one row per plugin,
+  // the toolbar looks for such a row (a small element next to it that contains buttons) and moves its button in there.
+  // If none is found, the button stays in its own row. Detection is heuristic, so everything is wrapped in try/catch.
+  function findHostRow(own) {
+    const parent = own.parentElement;
+    if (!parent) return null;
+    const rows = Array.prototype.slice.call(parent.children).filter((el) => el !== own && el.isConnected);
+    let best = null;
+    rows.forEach((el) => {
+      if (el.getAttribute("data-bs-host") === "0") return;
+      const buttons = el.querySelectorAll("button, a.btn, .btn");
+      if (!buttons.length || buttons.length > 10) return;
+      // skip the list itself and other large blocks
+      if (el.querySelector("table, .card, .performer-card, .grid, .wall-item") || el.offsetHeight > 120) return;
+      // prefer the row closest to the list (the last one in front of it)
+      if (!best || (el.compareDocumentPosition(best) & 2) === 0) best = el;
+    });
+    return best;
+  }
+
   function PerformersToolbar() {
+    const ref = React.useRef(null);
+    const originRef = React.useRef(null);
+    const [hosted, setHosted] = useState(false);
+
+    React.useLayoutEffect(() => {
+      const own = ref.current;
+      if (!own) return undefined;
+      originRef.current = own.parentElement;
+      let timer = null;
+      let observer = null;
+      let hostedRow = null;
+
+      const moveBack = () => {
+        try {
+          if (originRef.current && own.parentElement !== originRef.current) originRef.current.insertBefore(own, originRef.current.firstChild);
+        } catch (e) {
+          /* ignore */
+        }
+        hostedRow = null;
+        setHosted(false);
+      };
+
+      const detect = () => {
+        try {
+          if (hostedRow && !hostedRow.isConnected) moveBack();
+          if (hostedRow) return;
+          const origin = originRef.current;
+          if (!origin || !origin.isConnected || own.parentElement !== origin) return;
+          const host = findHostRow(own);
+          if (host && !own.contains(host)) {
+            host.appendChild(own);
+            hostedRow = host;
+            setHosted(true);
+          }
+        } catch (e) {
+          console.warn("[bulk_performer_scraper] toolbar placement failed", e);
+        }
+      };
+
+      detect();
+      timer = setTimeout(detect, 400);
+      const later = setTimeout(detect, 1500);
+      try {
+        if (originRef.current && window.MutationObserver) {
+          observer = new MutationObserver(() => {
+            clearTimeout(timer);
+            timer = setTimeout(detect, 150);
+          });
+          observer.observe(originRef.current, { childList: true });
+        }
+      } catch (e) {
+        /* ignore */
+      }
+
+      return () => {
+        clearTimeout(timer);
+        clearTimeout(later);
+        if (observer) observer.disconnect();
+        // React removes the node from its original parent on unmount, so it has to be back there by then
+        try {
+          if (hostedRow && originRef.current && own.parentElement !== originRef.current) originRef.current.insertBefore(own, originRef.current.firstChild);
+        } catch (e) {
+          /* ignore */
+        }
+      };
+    }, []);
+
     return h(
       "div",
-      { className: "bs-performers-toolbar" },
+      { className: "bs-performers-toolbar" + (hosted ? " bs-in-host" : ""), ref },
       h(Button, { as: Link, to: ROUTE, variant: "secondary", title: "Open Bulk Performer Scraper" }, h(ProgressLabel, { label: "Bulk Scraper" }))
     );
   }
